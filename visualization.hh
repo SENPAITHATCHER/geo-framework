@@ -16,7 +16,7 @@
 
 #include "base-mesh.hh"
 
-enum class VisType { PLAIN, MEAN, SLICING, ISOPHOTES };
+enum class VisType { PLAIN, MEAN, SLICING, ISOPHOTES, SELECTION };
 
 struct Visualization {
   Visualization();

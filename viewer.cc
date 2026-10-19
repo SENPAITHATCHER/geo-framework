@@ -1,4 +1,5 @@
 #include <QtGui/QKeyEvent>
+#include <qmessagebox.h>
 
 #include "bezier.hh"
 #include "mesh.hh"
@@ -270,6 +271,11 @@ void Viewer::keyPressEvent(QKeyEvent *e) {
       camera()->showEntireScene();
       update();
       break;
+    case Qt::Key_Q:
+       vis.type = VisType::SELECTION;
+       QMessageBox::information(this, tr("Area of red"), QString::number(triangleNormals()));
+       update();
+       break;
     default:
       QGLViewer::keyPressEvent(e);
     }
@@ -409,3 +415,12 @@ void Viewer::setupCamera() {
 
   update();
 }
+
+float Viewer::triangleNormals() {
+    float sum = 0.0;
+    for (auto o: objects) {
+        sum += o->calculateSelection();
+    }
+    return sum;
+}
+

@@ -53,4 +53,6 @@ private:
     int selected_axis;
     Vector position, grabbed_pos, original_pos;
   } axes;
+
+  float triangleNormals();
 };

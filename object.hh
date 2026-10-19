@@ -15,11 +15,13 @@ public:
   virtual void updateBaseMesh();
   virtual bool reload() = 0;
   bool valid() const;
+  float calculateSelection();
 protected:
   void updateBaseMesh(bool own_normal, bool own_mean);
   virtual Vector normal(BaseMesh::VertexHandle vh) const;
   virtual double meanCurvature(BaseMesh::VertexHandle vh) const;
-
+  float calculateTriangleArea(OpenMesh::SmartFaceHandle f);
+  bool shouldSelectTriangle(OpenMesh::SmartFaceHandle f);
   BaseMesh mesh;
   std::string filename;
 };

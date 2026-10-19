@@ -1,0 +1,181 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 48b3050..e4eeee2 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -20,7 +20,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ 
+ if(CMAKE_COMPILER_IS_GNUCXX)
+   set(CMAKE_CXX_FLAGS "-Wall -fPIC -Wno-reorder")
+-  set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -DDEBUG -fsanitize=address")
++  set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -DDEBUG")
+   set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g -DNDEBUG")
+ endif(CMAKE_COMPILER_IS_GNUCXX)
+ 
+diff --git a/base-mesh.hh b/base-mesh.hh
+index 661598c..80d03f5 100644
+--- a/base-mesh.hh
++++ b/base-mesh.hh
+@@ -8,6 +8,9 @@ struct BaseTraits : public OpenMesh::DefaultTraits {
+   VertexTraits {
+     double mean;              // approximated mean curvature
+   };
++  FaceTraits {
++      bool selected;
++  };
+ };
+ 
+ using BaseMesh = OpenMesh::TriMesh_ArrayKernelT<BaseTraits>;
+diff --git a/object.cc b/object.cc
+index 3e6c761..26f8f59 100644
+--- a/object.cc
++++ b/object.cc
+@@ -36,6 +36,8 @@ void Object::draw(const Visualization &vis) const {
+       glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
+       glEnable(GL_TEXTURE_1D);
+     }
++    else if (vis.type == VisType::SELECTION)
++        glColor3d(1.0, 1.0, 1.0);
+     for (auto f : mesh.faces()) {
+       glBegin(GL_POLYGON);
+       for (auto v : f.vertices()) {
+@@ -43,6 +45,14 @@ void Object::draw(const Visualization &vis) const {
+           glColor3dv(vis.colorMap(vis.mean_min, vis.mean_max, mesh.data(v).mean).data());
+         else if (vis.type == VisType::SLICING)
+           glTexCoord1d(mesh.point(v) | vis.slicing_dir * vis.slicing_scaling);
++        else if (vis.type == VisType::SELECTION) {
++            if (mesh.data(f).selected) {
++                glColor3d(1.0, 0.0, 0.0);
++            }
++            else {
++                glColor3d(1.0, 1.0, 1.0);
++            }
++        }
+         glNormal3dv(mesh.normal(v).data());
+         glVertex3dv(mesh.point(v).data());
+       }
+@@ -80,7 +90,7 @@ void Object::updateBaseMesh(bool own_normal, bool own_mean) {
+   mesh.request_face_normals();
+   mesh.request_vertex_normals();
+   mesh.update_face_normals();
+-
++  calculateSelection();
+ #ifdef USE_JET_FITTING
+ 
+   if (own_normal && own_mean) {
+@@ -165,3 +175,38 @@ double Object::meanCurvature(BaseMesh::VertexHandle vh) const {
+ bool Object::valid() const {
+   return mesh.n_vertices() > 0;
+ }
++
++float Object::calculateTriangleArea(OpenMesh::SmartFaceHandle f) {
++    if (!f.is_valid()) return 0.0;
++    auto it = mesh.fv_range(f).begin();
++    auto a = mesh.point(*it++);
++    auto b = mesh.point(*it++);
++    auto c = mesh.point(*it++);
++    return 0.5 * ((b-a) % (c-a)).norm();
++}
++
++float Object::calculateSelection() {
++    float sum = 0.0;
++    for (auto f : mesh.faces()) {
++        bool selected = shouldSelectTriangle(f);
++        mesh.data(f).selected = selected;
++        if (selected) {
++            sum += calculateTriangleArea(f);
++        }
++    }
++    return sum;
++}
++
++bool Object::shouldSelectTriangle(OpenMesh::SmartFaceHandle f) {
++    if (!f.is_valid()) return false;
++    auto it = mesh.fv_range(f).begin();
++    auto a = mesh.point(*it++);
++    auto b = mesh.point(*it++);
++    auto c = mesh.point(*it++);
++    auto u = b - a;
++    auto v = c - a;
++    auto n = (u % v);
++    auto up = BaseMesh::Point(0.0, 0.0, 1.0);
++    auto dot = n | up;
++    return dot > 0.0;
++}
+diff --git a/object.hh b/object.hh
+index 84aa35c..57d2aab 100644
+--- a/object.hh
++++ b/object.hh
+@@ -15,11 +15,13 @@ public:
+   virtual void updateBaseMesh();
+   virtual bool reload() = 0;
+   bool valid() const;
++  float calculateSelection();
+ protected:
+   void updateBaseMesh(bool own_normal, bool own_mean);
+   virtual Vector normal(BaseMesh::VertexHandle vh) const;
+   virtual double meanCurvature(BaseMesh::VertexHandle vh) const;
+-
++  float calculateTriangleArea(OpenMesh::SmartFaceHandle f);
++  bool shouldSelectTriangle(OpenMesh::SmartFaceHandle f);
+   BaseMesh mesh;
+   std::string filename;
+ };
+diff --git a/viewer.cc b/viewer.cc
+index 392bf42..144ef0d 100644
+--- a/viewer.cc
++++ b/viewer.cc
+@@ -1,4 +1,5 @@
+ #include <QtGui/QKeyEvent>
++#include <qmessagebox.h>
+ 
+ #include "bezier.hh"
+ #include "mesh.hh"
+@@ -270,6 +271,11 @@ void Viewer::keyPressEvent(QKeyEvent *e) {
+       camera()->showEntireScene();
+       update();
+       break;
++    case Qt::Key_Q:
++       vis.type = VisType::SELECTION;
++       QMessageBox::information(this, tr("Area of red"), QString::number(triangleNormals()));
++       update();
++       break;
+     default:
+       QGLViewer::keyPressEvent(e);
+     }
+@@ -409,3 +415,12 @@ void Viewer::setupCamera() {
+ 
+   update();
+ }
++
++float Viewer::triangleNormals() {
++    float sum = 0.0;
++    for (auto o: objects) {
++        sum += o->calculateSelection();
++    }
++    return sum;
++}
++
+diff --git a/viewer.hh b/viewer.hh
+index 1e475c2..578d5b8 100644
+--- a/viewer.hh
++++ b/viewer.hh
+@@ -53,4 +53,6 @@ private:
+     int selected_axis;
+     Vector position, grabbed_pos, original_pos;
+   } axes;
++
++  float triangleNormals();
+ };
+diff --git a/visualization.hh b/visualization.hh
+index b88bf87..800811e 100644
+--- a/visualization.hh
++++ b/visualization.hh
+@@ -16,7 +16,7 @@
+ 
+ #include "base-mesh.hh"
+ 
+-enum class VisType { PLAIN, MEAN, SLICING, ISOPHOTES };
++enum class VisType { PLAIN, MEAN, SLICING, ISOPHOTES, SELECTION };
+ 
+ struct Visualization {
+   Visualization();

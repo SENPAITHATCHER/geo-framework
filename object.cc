@@ -36,6 +36,8 @@ void Object::draw(const Visualization &vis) const {
       glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
       glEnable(GL_TEXTURE_1D);
     }
+    else if (vis.type == VisType::SELECTION)
+        glColor3d(1.0, 1.0, 1.0);
     for (auto f : mesh.faces()) {
       glBegin(GL_POLYGON);
       for (auto v : f.vertices()) {
@@ -43,6 +45,14 @@ void Object::draw(const Visualization &vis) const {
           glColor3dv(vis.colorMap(vis.mean_min, vis.mean_max, mesh.data(v).mean).data());
         else if (vis.type == VisType::SLICING)
           glTexCoord1d(mesh.point(v) | vis.slicing_dir * vis.slicing_scaling);
+        else if (vis.type == VisType::SELECTION) {
+            if (mesh.data(f).selected) {
+                glColor3d(1.0, 0.0, 0.0);
+            }
+            else {
+                glColor3d(1.0, 1.0, 1.0);
+            }
+        }
         glNormal3dv(mesh.normal(v).data());
         glVertex3dv(mesh.point(v).data());
       }
@@ -80,7 +90,7 @@ void Object::updateBaseMesh(bool own_normal, bool own_mean) {
   mesh.request_face_normals();
   mesh.request_vertex_normals();
   mesh.update_face_normals();
-
+  calculateSelection();
 #ifdef USE_JET_FITTING
 
   if (own_normal && own_mean) {
@@ -164,4 +174,39 @@ double Object::meanCurvature(BaseMesh::VertexHandle vh) const {
 
 bool Object::valid() const {
   return mesh.n_vertices() > 0;
+}
+
+float Object::calculateTriangleArea(OpenMesh::SmartFaceHandle f) {
+    if (!f.is_valid()) return 0.0;
+    auto it = mesh.fv_range(f).begin();
+    auto a = mesh.point(*it++);
+    auto b = mesh.point(*it++);
+    auto c = mesh.point(*it++);
+    return 0.5 * ((b-a) % (c-a)).norm();
+}
+
+float Object::calculateSelection() {
+    float sum = 0.0;
+    for (auto f : mesh.faces()) {
+        bool selected = shouldSelectTriangle(f);
+        mesh.data(f).selected = selected;
+        if (selected) {
+            sum += calculateTriangleArea(f);
+        }
+    }
+    return sum;
+}
+
+bool Object::shouldSelectTriangle(OpenMesh::SmartFaceHandle f) {
+    if (!f.is_valid()) return false;
+    auto it = mesh.fv_range(f).begin();
+    auto a = mesh.point(*it++);
+    auto b = mesh.point(*it++);
+    auto c = mesh.point(*it++);
+    auto u = b - a;
+    auto v = c - a;
+    auto n = (u % v);
+    auto up = BaseMesh::Point(0.0, 0.0, 1.0);
+    auto dot = n | up;
+    return dot > 0.0;
 }

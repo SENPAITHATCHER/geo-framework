@@ -8,6 +8,9 @@ struct BaseTraits : public OpenMesh::DefaultTraits {
   VertexTraits {
     double mean;              // approximated mean curvature
   };
+  FaceTraits {
+      bool selected;
+  };
 };
 
 using BaseMesh = OpenMesh::TriMesh_ArrayKernelT<BaseTraits>;
